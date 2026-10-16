@@ -1,0 +1,107 @@
+/*
+ * Código propio de este fork (emulador de la Registraduría Nacional del Estado Civil).
+ * No es parte del eudi-srv-pid-issuer original de la Comisión Europea.
+ *
+ * Paleta e iconografía tomadas de la imagen corporativa real de
+ * https://www.registraduria.gov.co/ (el sitio en vivo bloquea bots con
+ * Cloudflare, así que se extrajeron de la copia archivada en
+ * web.archive.org/web/2024.../https://www.registraduria.gov.co/):
+ *   - Azul institucional: pwa/manifest.json -> theme_color #002D55
+ *     (variantes vistas en su CSS: #003057, #1b3853, #022848).
+ *   - Acento turquesa: squelettes/css/landing-rneSom2.css (#01cac4, #00fffd, #248196)
+ *     y el anillo del favicon (bandera + aro turquesa).
+ *   - Escudo/sello: squelettes/images/logo_registraduria_azul_fondos_claros.svg
+ *     (versión azul, fondos claros) y assetsNewTrip/fondos_oscuros.svg
+ *     (versión blanca, fondos oscuros) — copiados a
+ *     public/img/registraduria/logo-azul.svg y logo-blanco.svg.
+ *   - Tipografía: el sitio no publica ningún webfont propio (usa
+ *     `system-ui`/sans-serif para el cuerpo); el rótulo "REGISTRADURÍA..."
+ *     del logo es una slab-serif condensada en mayúsculas, pero al venir
+ *     dentro del SVG del escudo no hay un archivo de fuente para reutilizar.
+ *     Para los títulos de este panel se aproxima con una slab-serif del
+ *     sistema (Georgia) en mayúsculas con tracking, sin pretender ser
+ *     pixel-perfect con el original.
+ */
+
+:root {
+    --rne-azul-900: #022848;
+    --rne-azul-800: #002d55;
+    --rne-azul-700: #003057;
+    --rne-azul-600: #1b3853;
+    --rne-turquesa: #01cac4;
+    --rne-turquesa-claro: #bedbf7;
+    --rne-amarillo: #fcd116;
+    --rne-rojo: #ce1126;
+    --rne-blanco: #ffffff;
+    --rne-gris-texto: #313131;
+
+    --rne-font-heading: Georgia, "Times New Roman", serif;
+    --rne-font-body: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+body {
+    font-family: var(--rne-font-body);
+    color: var(--rne-gris-texto);
+}
+
+.rne-header {
+    background-color: var(--rne-azul-800);
+    color: var(--rne-blanco);
+    padding: 1rem 1.5rem;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    border-bottom: 4px solid var(--rne-turquesa);
+}
+
+.rne-header img {
+    height: 48px;
+    width: auto;
+}
+
+.rne-header h1,
+.rne-header h2 {
+    font-family: var(--rne-font-heading);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    font-weight: 700;
+    font-size: 1.25rem;
+    margin: 0;
+    color: var(--rne-blanco);
+}
+
+.rne-header .rne-subtitle {
+    color: var(--rne-turquesa-claro);
+    font-size: 0.9rem;
+    margin: 0;
+}
+
+main h2,
+main h5 {
+    font-family: var(--rne-font-heading);
+    color: var(--rne-azul-800);
+}
+
+.btn-primary {
+    --bs-btn-bg: var(--rne-azul-800);
+    --bs-btn-border-color: var(--rne-azul-800);
+    --bs-btn-hover-bg: var(--rne-azul-600);
+    --bs-btn-hover-border-color: var(--rne-azul-600);
+    --bs-btn-active-bg: var(--rne-azul-900);
+    --bs-btn-active-border-color: var(--rne-azul-900);
+}
+
+.btn-outline-secondary {
+    --bs-btn-color: var(--rne-azul-700);
+    --bs-btn-border-color: var(--rne-azul-700);
+    --bs-btn-hover-bg: var(--rne-azul-700);
+    --bs-btn-hover-border-color: var(--rne-azul-700);
+}
+
+a {
+    color: var(--rne-azul-700);
+}
+
+table thead {
+    background-color: var(--rne-turquesa-claro);
+}

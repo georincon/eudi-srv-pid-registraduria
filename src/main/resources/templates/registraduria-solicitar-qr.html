@@ -1,0 +1,45 @@
+<!--
+  Código propio de este fork (emulador de la Registraduría Nacional del Estado Civil).
+  No es parte del eudi-srv-pid-issuer original de la Comisión Europea.
+-->
+<!doctype html>
+<html lang="es" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" type="text/css" th:href="@{/webjars/bootstrap/css/bootstrap.min.css}">
+    <link rel="stylesheet" type="text/css" th:href="@{/public/css/main.css}">
+    <link rel="stylesheet" type="text/css" th:href="@{/public/css/registraduria-theme.css}">
+    <link rel="icon" type="image/png" th:href="@{/public/img/registraduria/escudo-favicon.png}">
+    <title>Registraduría (emulador) :: Tu código QR</title>
+</head>
+<body>
+<div class="rne-header">
+    <img th:src="@{/public/img/registraduria/logo-blanco.svg}" alt="Escudo Registraduría Nacional del Estado Civil">
+    <div>
+        <h1>Registraduría (emulador)</h1>
+        <p class="rne-subtitle mb-0">Solicitud de cédula de ciudadanía digital (PID)</p>
+    </div>
+</div>
+<main class="container p-4" style="max-width: 480px;">
+    <h2 class="mb-2">Hola, <span th:text="${nombres}">ciudadano</span></h2>
+    <h5 class="mb-3 text-body-secondary">Escanea este código con tu wallet</h5>
+
+    <div class="d-flex justify-content-center mb-3">
+        <!--/*@thymesVar id="qrCode" type="kotlin.String"*/-->
+        <img class="qr-code" th:src="'data:' + ${qrCodeMediaType} + ';base64,' + ${qrCode}" alt="Código QR">
+    </div>
+
+    <div class="mb-3 text-center">
+        <p>O copia este enlace en tu wallet:</p>
+        <code class="credentials-offer-uri" th:text="${uri}">uri</code>
+    </div>
+
+    <p class="text-body-secondary" style="font-size: 0.85rem;" th:unless="${#strings.isEmpty(openid4VciVersion)}">
+        OpenID4VCI versión <span th:text="${openid4VciVersion}">1.0</span>
+    </p>
+
+    <a class="btn btn-outline-secondary w-100" th:href="@{/registraduria/solicitar}">Hacer otra solicitud</a>
+</main>
+</body>
+</html>

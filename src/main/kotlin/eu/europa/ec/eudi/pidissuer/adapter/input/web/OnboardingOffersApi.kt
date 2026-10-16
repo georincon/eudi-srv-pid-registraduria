@@ -1,0 +1,223 @@
+/*
+ * Copyright (c) 2023-2026 European Commission
+ *
+ * Licensed under the EUPL, Version 1.2 or - as soon they will be approved by the European
+ * Commission - subsequent versions of the EUPL (the "Licence"); You may not use this work
+ * except in compliance with the Licence.
+ *
+ * You may obtain a copy of the Licence at:
+ * https://joinup.ec.europa.eu/software/page/eupl
+ *
+ * Unless required by applicable law or agreed to in writing, software distributed under
+ * the Licence is distributed on an "AS IS" basis, WITHOUT WARRANTIES OR CONDITIONS OF
+ * ANY KIND, either express or implied. See the Licence for the specific language
+ * governing permissions and limitations under the Licence.
+ */
+package eu.europa.ec.eudi.pidissuer.adapter.input.web
+
+import arrow.core.raise.effect
+import arrow.core.raise.fold
+import eu.europa.ec.eudi.pidissuer.adapter.out.registraduria.CedulaDocumentNumber
+import eu.europa.ec.eudi.pidissuer.adapter.out.registraduria.CedulaHomologation
+import eu.europa.ec.eudi.pidissuer.adapter.out.attestation.pid.PidMsoMdocV1CredentialConfigurationId
+import eu.europa.ec.eudi.pidissuer.adapter.out.attestation.pid.PidSdJwtVcScope
+import eu.europa.ec.eudi.pidissuer.domain.CredentialConfigurationId
+import eu.europa.ec.eudi.pidissuer.port.input.CreateCredentialsOffer
+import eu.europa.ec.eudi.pidissuer.port.out.registraduria.FindCedulaByDocumentNumber
+import eu.europa.ec.eudi.pidissuer.port.out.registraduria.GetOnboardingSession
+import eu.europa.ec.eudi.pidissuer.port.out.registraduria.OfferTickets
+import eu.europa.ec.eudi.pidissuer.port.out.registraduria.OnboardingSessionResult
+import eu.europa.ec.eudi.pidissuer.port.out.registraduria.TicketRedemption
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
+import org.slf4j.LoggerFactory
+import org.springframework.http.HttpStatus
+import org.springframework.http.MediaType
+import org.springframework.web.reactive.function.server.*
+import java.security.MessageDigest
+import java.util.UUID
+
+/**
+ * Puente onboarding -> emisión del PID de la Registraduría.
+ *
+ *  - `POST /onboarding/offers` (público): la wallet envía el `sessionId` de su onboarding aprobado. El issuer
+ *    verifica server-to-server la sesión, homologa contra la tabla `cedulas` y devuelve una oferta
+ *    (authorization_code + `issuer_state` = ticket de un solo uso) con los dos formatos del PID.
+ *  - `POST /internal/v1/tickets/redeem` (interno, `X-Api-Key`): lo llama Keycloak para identificar al
+ *    ciudadano a partir del `issuer_state`. No se expone fuera de la red docker (ver haproxy.conf).
+ */
+class OnboardingOffersApi(
+    private val createCredentialsOffer: CreateCredentialsOffer,
+    private val getOnboardingSession: GetOnboardingSession,
+    private val findCedulaByDocumentNumber: FindCedulaByDocumentNumber,
+    private val tickets: OfferTickets,
+    private val ticketApiKey: String?,
+) {
+    val router: RouterFunction<ServerResponse> =
+        coRouter {
+            POST(
+                OFFERS,
+                contentType(MediaType.APPLICATION_JSON) and accept(MediaType.APPLICATION_JSON, MediaType.ALL),
+                ::handleOffer,
+            )
+            POST(
+                REDEEM,
+                contentType(MediaType.APPLICATION_JSON),
+                ::handleRedeem,
+            )
+        }
+
+    private suspend fun handleOffer(request: ServerRequest): ServerResponse {
+        val body = runCatching { request.awaitBody<OfferRequestTO>() }.getOrNull()
+        val sessionId = body?.sessionId?.trim()
+        if (sessionId.isNullOrBlank() || runCatching { UUID.fromString(sessionId) }.isFailure) {
+            return error(HttpStatus.BAD_REQUEST, "INVALID_REQUEST", listOf("sessionId must be a UUID"))
+        }
+
+        val session =
+            when (val result = getOnboardingSession(sessionId)) {
+                is OnboardingSessionResult.Found -> result.session
+                OnboardingSessionResult.NotFound -> return error(HttpStatus.NOT_FOUND, "SESSION_NOT_FOUND")
+                is OnboardingSessionResult.Unavailable -> return error(HttpStatus.BAD_GATEWAY, "ONBOARDING_UNAVAILABLE")
+            }
+
+        if (session.decision != "APPROVED") {
+            return error(HttpStatus.FORBIDDEN, "NOT_APPROVED", listOf("decision=${session.decision ?: "none"}"))
+        }
+        val documentNumber =
+            session.documentNumber ?: return error(HttpStatus.FORBIDDEN, "NOT_APPROVED", listOf("DOCUMENT_NUMBER_MISSING"))
+
+        val cedula =
+            findCedulaByDocumentNumber(CedulaDocumentNumber(documentNumber))
+                ?: return error(HttpStatus.NOT_FOUND, "CEDULA_NOT_FOUND")
+
+        val homologation = CedulaHomologation.check(session, cedula)
+        if (!homologation.ok) {
+            log.info("Homologación fallida para la cédula {}: {}", documentNumber.mask(), homologation.reasons)
+            return error(HttpStatus.FORBIDDEN, "DATA_MISMATCH", homologation.reasons)
+        }
+        if (cedula.fotoReferencia == null) {
+            return error(HttpStatus.CONFLICT, "CEDULA_INCOMPLETE", listOf("REFERENCE_PHOTO_MISSING"))
+        }
+
+        val ticket = tickets.issue(cedula.documentNumber.value)
+        val ids = PID_CONFIGURATION_IDS
+        return effect {
+            createCredentialsOffer(CreateCredentialsOffer.Request(ids, issuerState = ticket))
+        }.fold(
+            transform = { offerUri ->
+                log.info("Oferta PID creada para la cédula {}", documentNumber.mask())
+                ServerResponse
+                    .ok()
+                    .json()
+                    .bodyValueAndAwait(
+                        OfferResponseTO(
+                            offerUri = offerUri.toString(),
+                            credentialConfigurationIds = ids.map { it.value },
+                            expiresInSeconds = TICKET_TTL_SECONDS,
+                        ),
+                    )
+            },
+            recover = { err ->
+                log.error("No se pudo crear la oferta: {}", err)
+                error(HttpStatus.INTERNAL_SERVER_ERROR, "OFFER_ERROR", listOf(err::class.java.simpleName))
+            },
+        )
+    }
+
+    private suspend fun handleRedeem(request: ServerRequest): ServerResponse {
+        val expected = ticketApiKey
+        if (expected.isNullOrBlank()) return error(HttpStatus.SERVICE_UNAVAILABLE, "TICKETS_DISABLED")
+        val provided = request.headers().firstHeader(API_KEY_HEADER).orEmpty()
+        val keyOk =
+            MessageDigest.isEqual(
+                provided.toByteArray(Charsets.UTF_8),
+                expected.toByteArray(Charsets.UTF_8),
+            )
+        if (!keyOk) return error(HttpStatus.UNAUTHORIZED, "INVALID_API_KEY")
+
+        val ticket = runCatching { request.awaitBody<RedeemRequestTO>() }.getOrNull()?.ticket?.trim()
+        if (ticket.isNullOrBlank()) return error(HttpStatus.BAD_REQUEST, "INVALID_REQUEST")
+
+        return when (val redemption = tickets.redeem(ticket)) {
+            TicketRedemption.NotFound -> error(HttpStatus.NOT_FOUND, "TICKET_NOT_FOUND")
+            TicketRedemption.Expired -> error(HttpStatus.GONE, "TICKET_EXPIRED")
+            is TicketRedemption.Redeemed -> {
+                val cedula =
+                    findCedulaByDocumentNumber(CedulaDocumentNumber(redemption.documentNumber))
+                        ?: return error(HttpStatus.NOT_FOUND, "CEDULA_NOT_FOUND")
+                ServerResponse
+                    .ok()
+                    .json()
+                    .bodyValueAndAwait(
+                        RedeemResponseTO(
+                            documentNumber = cedula.documentNumber.value,
+                            givenName = cedula.nombres,
+                            familyName = cedula.apellidos,
+                            birthDate = cedula.fechaNacimiento.toString(),
+                            nationality = cedula.nacionalidad,
+                        ),
+                    )
+            }
+        }
+    }
+
+    private suspend fun error(
+        status: HttpStatus,
+        code: String,
+        reasons: List<String> = emptyList(),
+    ): ServerResponse =
+        ServerResponse
+            .status(status)
+            .json()
+            .bodyValueAndAwait(ErrorTO(code, reasons))
+
+    companion object {
+        const val OFFERS: String = "/onboarding/offers"
+        const val REDEEM: String = "/internal/v1/tickets/redeem"
+        const val API_KEY_HEADER: String = "X-Api-Key"
+        const val TICKET_TTL_SECONDS: Long = 600
+        private val log = LoggerFactory.getLogger(OnboardingOffersApi::class.java)
+
+        /** Una sola PID de la Registraduría, en sus dos formatos. */
+        val PID_CONFIGURATION_IDS: Set<CredentialConfigurationId> =
+            linkedSetOf(
+                PidMsoMdocV1CredentialConfigurationId,
+                CredentialConfigurationId(PidSdJwtVcScope.value),
+            )
+    }
+}
+
+private fun String.mask(): String = if (length <= 4) "****" else "****" + takeLast(3)
+
+@Serializable
+private data class OfferRequestTO(
+    @SerialName("sessionId") val sessionId: String? = null,
+)
+
+@Serializable
+private data class OfferResponseTO(
+    @SerialName("offerUri") val offerUri: String,
+    @SerialName("credentialConfigurationIds") val credentialConfigurationIds: List<String>,
+    @SerialName("expiresInSeconds") val expiresInSeconds: Long,
+)
+
+@Serializable
+private data class RedeemRequestTO(
+    @SerialName("ticket") val ticket: String? = null,
+)
+
+@Serializable
+private data class RedeemResponseTO(
+    @SerialName("documentNumber") val documentNumber: String,
+    @SerialName("givenName") val givenName: String,
+    @SerialName("familyName") val familyName: String,
+    @SerialName("birthDate") val birthDate: String,
+    @SerialName("nationality") val nationality: String,
+)
+
+@Serializable
+private data class ErrorTO(
+    @SerialName("code") val code: String,
+    @SerialName("reasons") val reasons: List<String> = emptyList(),
+)

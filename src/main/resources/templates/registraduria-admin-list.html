@@ -1,0 +1,82 @@
+<!--
+  Código propio de este fork (emulador de la Registraduría Nacional del Estado Civil).
+  No es parte del eudi-srv-pid-issuer original de la Comisión Europea.
+-->
+<!doctype html>
+<html lang="es" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" type="text/css" th:href="@{/webjars/bootstrap/css/bootstrap.min.css}">
+    <link rel="stylesheet" type="text/css" th:href="@{/public/css/main.css}">
+    <link rel="stylesheet" type="text/css" th:href="@{/public/css/registraduria-theme.css}">
+    <link rel="icon" type="image/png" th:href="@{/public/img/registraduria/escudo-favicon.png}">
+    <title>Registraduría (emulador) :: Ciudadanos</title>
+</head>
+<body>
+<div class="rne-header">
+    <img th:src="@{/public/img/registraduria/logo-blanco.svg}" alt="Escudo Registraduría Nacional del Estado Civil">
+    <div>
+        <h1>Registraduría (emulador)</h1>
+        <p class="rne-subtitle mb-0">Datos de prueba. No uses datos reales.</p>
+    </div>
+</div>
+<main class="container p-4">
+    <div class="row mb-4 align-items-center">
+        <div class="col">
+            <h2 class="mb-0">Ciudadanos</h2>
+        </div>
+        <div class="col-auto">
+            <form method="post" th:action="@{/registraduria/admin/logout}">
+                <button type="submit" class="btn btn-outline-secondary btn-sm">Salir</button>
+            </form>
+        </div>
+    </div>
+
+    <div class="row mb-3 g-2 align-items-center">
+        <div class="col">
+            <form method="get" th:action="@{/registraduria/admin/ciudadanos}" class="d-flex gap-2">
+                <input type="text" name="q" class="form-control" placeholder="Buscar por documento o nombre"
+                       th:value="${query}">
+                <button type="submit" class="btn btn-outline-secondary">Buscar</button>
+            </form>
+        </div>
+        <div class="col-auto" th:text="${total} + ' en total'">0 en total</div>
+        <div class="col-auto">
+            <a class="btn btn-primary" th:href="@{/registraduria/admin/ciudadanos/nuevo}">Nuevo ciudadano</a>
+        </div>
+    </div>
+
+    <table class="table">
+        <thead>
+        <tr>
+            <th>Documento</th>
+            <th>Nombre</th>
+            <th>Nacimiento</th>
+            <th>Nacionalidad</th>
+            <th>Foto</th>
+            <th></th>
+        </tr>
+        </thead>
+        <tbody>
+        <tr th:each="cedula : ${cedulas}">
+            <td th:text="${cedula.documentNumber}">documento</td>
+            <td th:text="${cedula.apellidos} + ' ' + ${cedula.nombres}">nombre</td>
+            <td th:text="${cedula.fechaNacimiento}">fecha</td>
+            <td th:text="${cedula.nacionalidad}">CO</td>
+            <td th:text="${cedula.fotoReferencia != null} ? 'Sí' : 'No'">¿Sí/No?</td>
+            <td class="text-end">
+                <a class="btn btn-outline-secondary btn-sm"
+                   th:href="@{/registraduria/admin/ciudadanos/{documentNumber}/editar(documentNumber=${cedula.documentNumber})}">Editar</a>
+                <form method="post" class="d-inline"
+                      th:action="@{/registraduria/admin/ciudadanos/{documentNumber}/borrar(documentNumber=${cedula.documentNumber})}"
+                      onsubmit="return confirm('¿Borrar este ciudadano?');">
+                    <button type="submit" class="btn btn-outline-danger btn-sm">Borrar</button>
+                </form>
+            </td>
+        </tr>
+        </tbody>
+    </table>
+</main>
+</body>
+</html>
