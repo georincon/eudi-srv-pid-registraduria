@@ -100,8 +100,18 @@ class OnboardingOffersApi(
             return error(HttpStatus.CONFLICT, "CEDULA_INCOMPLETE", listOf("REFERENCE_PHOTO_MISSING"))
         }
 
+        val requestedFormats = body.credentialFormats.toSet()
+        val ids = requestedFormats.mapNotNullTo(linkedSetOf()) { format ->
+            when (format) {
+                FORMAT_MSO_MDOC -> PidMsoMdocV1CredentialConfigurationId
+                FORMAT_SD_JWT -> CredentialConfigurationId(PidSdJwtVcScope.value)
+                else -> null
+            }
+        }
+        if (requestedFormats.isEmpty() || ids.size != requestedFormats.size) {
+            return error(HttpStatus.BAD_REQUEST, "INVALID_CREDENTIAL_FORMATS", listOf("Allowed: $FORMAT_MSO_MDOC, $FORMAT_SD_JWT"))
+        }
         val ticket = tickets.issue(cedula.documentNumber.value)
-        val ids = PID_CONFIGURATION_IDS
         return effect {
             createCredentialsOffer(CreateCredentialsOffer.Request(ids, issuerState = ticket))
         }.fold(
@@ -177,14 +187,15 @@ class OnboardingOffersApi(
         const val REDEEM: String = "/internal/v1/tickets/redeem"
         const val API_KEY_HEADER: String = "X-Api-Key"
         const val TICKET_TTL_SECONDS: Long = 600
+        const val FORMAT_MSO_MDOC: String = "mso_mdoc"
+        const val FORMAT_SD_JWT: String = "dc+sd-jwt"
+        /** Oferta predeterminada de PID para flujos web existentes. */
+        val PID_CONFIGURATION_IDS: Set<CredentialConfigurationId> = linkedSetOf(
+            PidMsoMdocV1CredentialConfigurationId,
+            CredentialConfigurationId(PidSdJwtVcScope.value),
+        )
         private val log = LoggerFactory.getLogger(OnboardingOffersApi::class.java)
 
-        /** Una sola PID de la Registraduría, en sus dos formatos. */
-        val PID_CONFIGURATION_IDS: Set<CredentialConfigurationId> =
-            linkedSetOf(
-                PidMsoMdocV1CredentialConfigurationId,
-                CredentialConfigurationId(PidSdJwtVcScope.value),
-            )
     }
 }
 
@@ -193,6 +204,7 @@ private fun String.mask(): String = if (length <= 4) "****" else "****" + takeLa
 @Serializable
 private data class OfferRequestTO(
     @SerialName("sessionId") val sessionId: String? = null,
+    @SerialName("credentialFormats") val credentialFormats: List<String> = emptyList(),
 )
 
 @Serializable

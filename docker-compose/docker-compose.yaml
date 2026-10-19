@@ -150,11 +150,12 @@ services:
       # Puente onboarding -> emisión (POST /pid-issuer/onboarding/offers y canje interno de tickets)
       - ISSUER_ONBOARDING_BACKEND_URL=http://192.168.0.240:${NW_ONBOARDING_BACKEND_PORT:-8195}
       - ISSUER_TICKET_API_KEY=${REG_TICKET_API_KEY:-reg-dev-ticket-key-change-me}
-      # Vigencia del PID de la Registraduría: 5 años (no los 31 días por defecto del template EU).
-      # preferred-client-status-period debe ser >= a la vigencia máxima de cualquier credencial emitida.
-      - ISSUER_PID_MSO_MDOC_ENCODER_DURATION=P1825D
-      - ISSUER_PID_SD_JWT_VC_DURATION=P1825D
-      - ISSUER_METADATA_PREFERRED_CLIENT_STATUS_PERIOD=P1825D
+      # El issuer exige que el client_status presentado por la wallet cubra el período preferido,
+      # y que este sea al menos igual a la vigencia de la credencial. La wallet actual no presenta
+      # un client_status válido por cinco años; usar el mínimo admitido para permitir la emisión.
+      - ISSUER_PID_MSO_MDOC_ENCODER_DURATION=P31D
+      - ISSUER_PID_SD_JWT_VC_DURATION=P31D
+      - ISSUER_METADATA_PREFERRED_CLIENT_STATUS_PERIOD=P31D
       - ISSUER_PID_ISSUINGCOUNTRY=CO
       - ISSUER_PID_ISSUINGJURISDICTION=CO-DC
       - ISSUER_REGISTRADURIA_ADMIN_USERNAME=admin

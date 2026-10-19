@@ -130,19 +130,38 @@ class OnboardingOffersApiTest {
     }
 
     @Test
-    fun `approved and homologated session yields an offer with both PID formats and a redeemable ticket`() {
+    fun `approved session yields only the requested PID format`() {
         val tickets = InMemoryOfferTickets(Clock.System)
         val api = client(OnboardingSessionResult.Found(approved()), tickets = tickets)
-        val body =
-            api
-                .offer("""{"sessionId":"$sessionId"}""")
-                .expectStatus().isOk
-                .expectBody(String::class.java)
-                .returnResult()
-                .responseBody!!
+        val body = api.offer("""{"sessionId":"$sessionId","credentialFormats":["mso_mdoc"]}""")
+            .expectStatus().isOk
+            .expectBody(String::class.java)
+            .returnResult().responseBody!!
+        assertTrue("eu.europa.ec.eudi.pid_mso_mdoc" in body, body)
+        assertTrue("eu.europa.ec.eudi.pid_vc_sd_jwt" !in body, body)
+        assertTrue("issuer_state" in java.net.URLDecoder.decode(body, "UTF-8"), body)
+    }
+
+    @Test
+    fun `approved session yields both formats when both are requested`() {
+        val body = client(OnboardingSessionResult.Found(approved()))
+            .offer("""{"sessionId":"$sessionId","credentialFormats":["mso_mdoc","dc+sd-jwt"]}""")
+            .expectStatus().isOk
+            .expectBody(String::class.java).returnResult().responseBody!!
         assertTrue("eu.europa.ec.eudi.pid_mso_mdoc" in body, body)
         assertTrue("eu.europa.ec.eudi.pid_vc_sd_jwt" in body, body)
-        assertTrue("issuer_state" in java.net.URLDecoder.decode(body, "UTF-8"), body)
+    }
+
+    @Test
+    fun `missing or unsupported credential formats are rejected before offer creation`() {
+        client(OnboardingSessionResult.Found(approved()))
+            .offer("""{"sessionId":"$sessionId"}""")
+            .expectStatus().isBadRequest
+            .expectBody().jsonPath("$.code").isEqualTo("INVALID_CREDENTIAL_FORMATS")
+        client(OnboardingSessionResult.Found(approved()))
+            .offer("""{"sessionId":"$sessionId","credentialFormats":["unknown"]}""")
+            .expectStatus().isBadRequest
+            .expectBody().jsonPath("$.code").isEqualTo("INVALID_CREDENTIAL_FORMATS")
     }
 
     @Test
